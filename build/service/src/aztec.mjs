@@ -4,9 +4,8 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { Supervised } from "./lib/proc.mjs";
-import { CONSENSUS_CLIENTS, EXECUTION_CLIENTS, forgetTracing, jsonRpc, pick, probeConsensus, probeExecution } from "./lib/l1.mjs";
+import { CONSENSUS_CLIENTS, NETHERMIND, jsonRpc, otherExecutionClients, pick, probeConsensus, probeExecution } from "./lib/l1.mjs";
 import { diskSpace, readJsonFile, writeJsonFile } from "./lib/files.mjs";
-import { enableGethTracing } from "./lib/dappmanager.mjs";
 import { AZTEC_CLI, ETH_ADDRESS, KeyStore, addressOf, makeKeys, newWords, normaliseWords, parseKeystore, withCoinbase } from "./keys.mjs";
 
 export const AZTEC_PORT = 8080;
@@ -17,6 +16,7 @@ const SELECTOR_GET_STATUS = "0x30ccebb5";
 export const ATTESTER_STATUS = ["notRegistered", "validating", "zombie", "exiting"];
 // Free blob archive used when the beacon node does not keep every blob (Dappnode's Aztec package does the same).
 const BLOB_ARCHIVE = "https://api.blobscan.com";
+// el: "auto" = Nethermind on this AVADO, "custom" = an address the owner entered (advanced)
 const DEFAULT_SETTINGS = { el: "auto", elCustom: "", cl: "auto", clCustom: "" };
 const HTTP_URL = /^https?:\/\/[^\s,]+$/;
 
@@ -36,7 +36,7 @@ export function explainLine(line) {
 }
 
 export class AztecBox {
-  constructor({ dataDir, env = process.env, log = console.log, rpc = jsonRpc, probeEl = probeExecution, probeCl = probeConsensus, keyTools = {} }) {
+  constructor({ dataDir, env = process.env, log = console.log, rpc = jsonRpc, probeEl = probeExecution, probeCl = probeConsensus, findOtherEl = otherExecutionClients, keyTools = {} }) {
     this.dataDir = dataDir;
     this.nodeDir = join(dataDir, "node");
     this.settingsPath = join(dataDir, "settings.json");
@@ -45,11 +45,14 @@ export class AztecBox {
     this.rpc = rpc;
     this.probeEl = probeEl;
     this.probeCl = probeCl;
-    this.keyTools = { makeKeys, newWords, addressOf, enableGethTracing, ...keyTools };
+    this.findOtherEl = findOtherEl;
+    this.keyTools = { makeKeys, newWords, addressOf, ...keyTools };
     this.keys = new KeyStore(dataDir);
     mkdirSync(dataDir, { recursive: true });
     this.settings = { ...DEFAULT_SETTINGS, ...readJsonFile(this.settingsPath, {}) };
-    this.el = { client: null, url: null, state: null, states: [] };
+    // settings saved by a test build that still offered Geth and Reth: Aztec uses Nethermind now
+    if (this.settings.el !== "custom") this.settings.el = "auto";
+    this.el = { client: null, url: null, state: null, others: [] };
     this.cl = { client: null, url: null, state: null, states: [] };
     this.node = { answering: false, ready: false, block: null, proven: null, version: null, rollup: null };
     this.attesters = [];
@@ -109,11 +112,11 @@ export class AztecBox {
   async refreshL1() {
     const s = this.settings;
     if (s.el === "custom") {
-      this.el = { client: { id: "custom", title: "Your own Ethereum node" }, url: s.elCustom || null, state: null, states: [] };
+      this.el = { client: { id: "custom", title: "Your own Ethereum node" }, url: s.elCustom || null, state: null, others: [] };
     } else {
-      const { client, states } = await pick(EXECUTION_CLIENTS, (c) => this.probeEl(c), s.el);
-      const state = client ? states.find((x) => x.id === client.id) : null;
-      this.el = { client: client ? { id: client.id, title: client.title } : null, url: state && state.installed ? client.http : null, state, states };
+      const state = await this.probeEl(NETHERMIND);
+      const others = state.installed ? [] : await this.findOtherEl();
+      this.el = { client: { id: NETHERMIND.id, title: NETHERMIND.title }, url: state.installed ? NETHERMIND.http : null, state, others };
     }
     if (s.cl === "custom") {
       this.cl = { client: { id: "custom", title: "Your own beacon node" }, url: s.clCustom || null, state: null, states: [] };
@@ -269,7 +272,7 @@ export class AztecBox {
     if (this.canMakeKeys()) return;
     throw Object.assign(new Error(this.el.url
       ? "Your Ethereum node is not up to date yet. You can make the keys as soon as it is (see “Ethereum node” at the top of this page)."
-      : "The keys can be made once there is an Ethereum node on this AVADO."), { status: 409 });
+      : "The keys can be made once Nethermind is installed on this AVADO and up to date."), { status: 409 });
   }
 
   /** New keys from new words. Returns the words once; they are not kept. */
@@ -321,22 +324,13 @@ export class AztecBox {
   }
 
   async setL1({ el, elCustom, cl, clCustom }) {
-    const elAllowed = ["auto", "custom", ...EXECUTION_CLIENTS.map((c) => c.id)];
+    const elAllowed = ["auto", "custom"];
     const clAllowed = ["auto", "custom", ...CONSENSUS_CLIENTS.map((c) => c.id)];
     if (!elAllowed.includes(el) || !clAllowed.includes(cl)) throw Object.assign(new Error("Unknown choice"), { status: 400 });
     if (el === "custom" && !HTTP_URL.test(elCustom || "")) throw Object.assign(new Error("Enter the Ethereum node address, starting with http:// or https://"), { status: 400 });
     if (cl === "custom" && !HTTP_URL.test(clCustom || "")) throw Object.assign(new Error("Enter the beacon node address, starting with http:// or https://"), { status: 400 });
     this.saveSettings({ el, elCustom: el === "custom" ? elCustom : "", cl, clCustom: cl === "custom" ? clCustom : "" });
     await this.tick();
-  }
-
-  async enableTracing() {
-    if (!this.el.client || this.el.client.id !== "geth") throw Object.assign(new Error("This only applies to Geth on this AVADO."), { status: 400 });
-    const result = await this.keyTools.enableGethTracing();
-    forgetTracing();
-    this.log(result.changed ? `Geth RPC options changed from "${result.before}" to "${result.after}"` : "Geth already offers traces");
-    setTimeout(() => this.tick(), 30000);
-    return { changed: result.changed };
   }
 
   /** Restarts the node; when it cannot run yet (no Ethereum or beacon node ready) it stays stopped. */
@@ -373,7 +367,7 @@ export class AztecBox {
     return {
       packageVersion: this.env.PACKAGE_VERSION || null,
       node: { state: node, block: this.node.block, proven: this.node.proven, version: this.node.version, restarts: this.proc.restarts },
-      ethereum: { choice: this.settings.el, custom: this.settings.elCustom, using: this.el.client, state: e, clients: this.el.states },
+      ethereum: { choice: this.settings.el, custom: this.settings.elCustom, using: this.el.client, state: e, others: this.el.others },
       beacon: { choice: this.settings.cl, custom: this.settings.clCustom, using: this.cl.client, state: c, clients: this.cl.states },
       sequencer: {
         state: sequencer,

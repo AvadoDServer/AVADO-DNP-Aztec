@@ -3,11 +3,25 @@
 // list as the Rocket Pool package's resolve_client_urls and the Starknet
 // Validator package). A package that is not installed has no *.my.ava.do name,
 // so a failed DNS lookup means "not installed".
+//
+// Aztec reads Ethereum transaction traces (trace_transaction or
+// debug_traceTransaction). On an AVADO only Nethermind offers them out of the
+// box (its "Trace" RPC module is on by default), so Nethermind is the one
+// execution client this package uses. Geth and Reth are only asked for
+// their chain id, so the page can tell their owners that Aztec needs
+// Nethermind.
 import { lookup } from "node:dns/promises";
 
-export const EXECUTION_CLIENTS = [
-  { id: "geth", title: "Geth", packageName: "ethchain-geth.public.dappnode.eth", http: "http://ethchain-geth.my.ava.do:8545" },
-  { id: "nethermind", title: "Nethermind", packageName: "avado-dnp-nethermind.public.dappnode.eth", http: "http://avado-dnp-nethermind.my.ava.do:8545" },
+export const NETHERMIND = {
+  id: "nethermind",
+  title: "Nethermind",
+  packageName: "avado-dnp-nethermind.public.dappnode.eth",
+  http: "http://avado-dnp-nethermind.my.ava.do:8545",
+};
+
+/** Other execution clients an AVADO can run: only detected, to explain that Aztec needs Nethermind. */
+export const OTHER_EXECUTION_CLIENTS = [
+  { id: "geth", title: "Geth", http: "http://ethchain-geth.my.ava.do:8545" },
   { id: "reth", title: "Reth", http: "http://reth-mainnet.my.ava.do:8545" },
 ];
 
@@ -21,8 +35,10 @@ export const CONSENSUS_CLIENTS = [
 const TIMEOUT_MS = 4000;
 // A transaction hash that does not exist: enough to see whether a trace method is there at all.
 const NO_TX = "0x" + "00".repeat(31) + "01";
+// A node whose newest block is older than this is not up to date, whatever eth_syncing says.
+const STALE_HEAD_S = 10 * 60;
 
-async function resolves(url) {
+export async function resolves(url) {
   try {
     await lookup(new URL(url).hostname);
     return true;
@@ -61,12 +77,11 @@ export function isMethodMissing(err) {
   return /does not exist|not available|not found: method|method not found|unsupported method|not supported|not enabled|not allowed|not whitelisted|disabled/i.test(String(err.message || ""));
 }
 
-// The tracing check makes the Ethereum node log a warning each time (Geth logs
-// every failed call), so its answer is kept for a few minutes per address.
+// The answer of the tracing check is kept for a few minutes per address.
 const TRACING_RECHECK_MS = 5 * 60 * 1000;
 const tracingSeen = new Map();
 
-/** Forget the kept answers, e.g. right after the owner turned traces on. */
+/** Forget the kept answers. */
 export function forgetTracing() {
   tracingSeen.clear();
 }
@@ -80,11 +95,15 @@ export async function probeTracingKept(url, rpc = jsonRpc, now = Date.now()) {
   return value;
 }
 
-/** Aztec needs debug_traceTransaction or trace_transaction on the L1 node. */
+/**
+ * Aztec needs trace_transaction or debug_traceTransaction on the L1 node.
+ * Nethermind answers trace_transaction (null for an unknown transaction) and
+ * refuses debug_* with "namespace 'Debug' is disabled", so trace_ is asked first.
+ */
 export async function probeTracing(url, rpc = jsonRpc) {
   for (const [method, params] of [
-    ["debug_traceTransaction", [NO_TX, { tracer: "callTracer" }]],
     ["trace_transaction", [NO_TX]],
+    ["debug_traceTransaction", [NO_TX, { tracer: "callTracer" }]],
   ]) {
     try {
       await rpc(url, method, params, TIMEOUT_MS);
@@ -96,8 +115,8 @@ export async function probeTracing(url, rpc = jsonRpc) {
   return false;
 }
 
-/** State of one execution client: installed, answering, chain, syncing, tracing. */
-export async function probeExecution(client, { rpc = jsonRpc, resolve = resolves } = {}) {
+/** State of the execution node at `client.http`: installed, answering, chain, syncing, tracing. */
+export async function probeExecution(client, { rpc = jsonRpc, resolve = resolves, now = () => Date.now() } = {}) {
   const out = { id: client.id, title: client.title, installed: false, answering: false, mainnet: null, synced: null, tracing: null };
   if (!(await resolve(client.http))) return out;
   out.installed = true;
@@ -112,11 +131,36 @@ export async function probeExecution(client, { rpc = jsonRpc, resolve = resolves
       const high = parseInt(syncing.highestBlock, 16);
       if (high > 0) out.progress = Math.min(1, cur / high);
     }
+    if (out.synced) {
+      const head = await rpc(client.http, "eth_getBlockByNumber", ["latest", false]).catch(() => null);
+      const ts = head && head.timestamp ? parseInt(head.timestamp, 16) : 0;
+      if (!ts || now() / 1000 - ts > STALE_HEAD_S) out.synced = false;
+    }
     out.tracing = await probeTracingKept(client.http, rpc);
   } catch {
     // installed but not answering (starting, stopped)
   }
   return out;
+}
+
+/**
+ * The other execution clients that run on this AVADO. The box's name server can keep
+ * the name of a removed package for a while, so a name alone is not enough: the node
+ * must also answer eth_chainId (a plain call that no client logs a warning for).
+ */
+export async function otherExecutionClients({ resolve = resolves, rpc = jsonRpc } = {}) {
+  const found = await Promise.all(
+    OTHER_EXECUTION_CLIENTS.map(async (c) => {
+      if (!(await resolve(c.http))) return null;
+      try {
+        await rpc(c.http, "eth_chainId", [], 3000);
+        return { id: c.id, title: c.title };
+      } catch {
+        return null;
+      }
+    }),
+  );
+  return found.filter(Boolean);
 }
 
 /** State of one beacon node. */
@@ -137,8 +181,8 @@ export async function probeConsensus(client, { fetchImpl = fetch, resolve = reso
 }
 
 /**
- * Picks a client: the one the owner chose, otherwise the first installed one that
- * is synced, otherwise the first answering one, otherwise the first installed one.
+ * Picks a beacon node: the one the owner chose, otherwise the first installed one
+ * that is synced, otherwise the first answering one, otherwise the first installed one.
  */
 export async function pick(list, probe, chosenId) {
   const states = await Promise.all(list.map((c) => probe(c)));

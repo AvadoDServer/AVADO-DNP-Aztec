@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "upstream": "6.0.0",
   "title": "Aztec Sequencer",
-  "description": "Run your own Aztec node and, with 200,000 AZTEC staked from your own wallet, an Aztec sequencer that builds and votes on blocks of Aztec, the privacy network on Ethereum. It uses the Ethereum node and beacon node already on your AVADO. The box makes the sequencer's keys for you and shows the recovery words once; your stake stays with your own wallet. The page explains each step in plain words and shows whether your sequencer is active. Needs an Ethereum node (Nethermind or Geth) and a beacon node on this AVADO.",
+  "description": "Run your own Aztec node and, with 200,000 AZTEC staked from your own wallet, an Aztec sequencer that builds and votes on blocks of Aztec, the privacy network on Ethereum. It uses the Ethereum node and beacon node already on your AVADO. The box makes the sequencer's keys for you and shows the recovery words once; your stake stays with your own wallet. The page explains each step in plain words and shows whether your sequencer is active. Needs Nethermind (the Ethereum node) and a beacon node on this AVADO.",
   "shortDescription": "Your own Aztec node and sequencer, using the Ethereum node on your AVADO",
   "type": "service",
   "avadocategory": "otherpos",

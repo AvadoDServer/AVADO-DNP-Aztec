@@ -19,10 +19,15 @@ test("supervised program: runs, keeps its log, stops", async () => {
     build: () => ({ cmd: process.execPath, args: ["-e", "console.log('hello'); setInterval(() => {}, 1000)"], env: {} }),
   });
   p.start();
-  await new Promise((r) => setTimeout(r, 500));
-  assert.equal(p.running, true);
-  assert.deepEqual(p.tail(), ["hello"]);
-  await p.stop();
+  try {
+    // wait for the first line: a busy build machine (emulated amd64) can take seconds to start Node.js
+    for (let i = 0; i < 300 && p.tail().length === 0; i++) await new Promise((r) => setTimeout(r, 100));
+    assert.equal(p.running, true);
+    assert.deepEqual(p.tail(), ["hello"]);
+  } finally {
+    // always stop the child, or a failed check leaves it running and the test never ends
+    await p.stop();
+  }
   assert.equal(p.running, false);
 });
 

@@ -4,8 +4,7 @@ import { mkdtempSync, readFileSync, statSync, existsSync, writeFileSync, mkdirSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AztecBox, explainLine, splitOptions } from "../src/aztec.mjs";
-import { gethOptsWithDebug } from "../src/lib/dappmanager.mjs";
-import { forgetTracing, isMethodMissing, probeTracing, probeTracingKept } from "../src/lib/l1.mjs";
+import { forgetTracing, isMethodMissing, otherExecutionClients, probeExecution, probeTracing, probeTracingKept } from "../src/lib/l1.mjs";
 import { keygenError, makeKeys, normaliseWords, parseKeystore, withCoinbase } from "../src/keys.mjs";
 
 const KEY = "0x" + "11".repeat(32);
@@ -13,7 +12,7 @@ const BLS = "0x" + "22".repeat(32);
 const KEYSTORE = { schemaVersion: 1, validators: [{ attester: { eth: KEY, bls: BLS }, feeRecipient: "0x" + "00".repeat(32) }] };
 const STAKER = [{ attester: "0x19E7E376E7C213B7E7e7e46cc70A5dD086DAff2A", publicKeyG1: { x: "0x1", y: "0x2" } }];
 
-function stubBox({ el = {}, cl = {}, rpc } = {}) {
+function stubBox({ el = {}, cl = {}, rpc, others = [] } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "aztec-"));
   const calls = [];
   const box = new AztecBox({
@@ -22,6 +21,7 @@ function stubBox({ el = {}, cl = {}, rpc } = {}) {
     log: () => {},
     probeEl: async (c) => ({ id: c.id, title: c.title, installed: c.id === "nethermind", answering: true, mainnet: true, synced: true, tracing: true, ...el }),
     probeCl: async (c) => ({ id: c.id, title: c.title, installed: c.id === "teku", answering: true, synced: true, ...cl }),
+    findOtherEl: async () => others,
     rpc: rpc || (async () => { throw new Error("offline"); }),
     keyTools: {
       newWords: async () => "abandon ".repeat(23) + "art",
@@ -30,7 +30,6 @@ function stubBox({ el = {}, cl = {}, rpc } = {}) {
         return { keystore: KEYSTORE, stakerOutput: STAKER };
       },
       addressOf: async () => STAKER[0].attester,
-      enableGethTracing: async () => ({ changed: true, before: "--http.api eth", after: "--http.api eth,debug" }),
     },
   });
   // never start the real node in tests
@@ -52,13 +51,58 @@ test("log lines become plain problems", () => {
   assert.equal(explainLine("Archiver synced to L1 block 123"), null);
 });
 
-test("geth options get debug added once", () => {
-  assert.equal(gethOptsWithDebug("--http.api eth,net,web3,txpool"), "--http.api eth,net,web3,txpool,debug");
-  assert.equal(gethOptsWithDebug("--http.api=eth,net --cache 4096"), "--http.api=eth,net,debug --cache 4096");
-  assert.equal(gethOptsWithDebug('--rpcapi "eth,net"'), '--rpcapi "eth,net,debug"');
-  assert.equal(gethOptsWithDebug("--http.api eth,debug,net"), null);
-  assert.equal(gethOptsWithDebug(""), "--http.api eth,net,web3,txpool,debug");
-  assert.equal(gethOptsWithDebug("--cache 4096"), "--cache 4096 --http.api eth,net,web3,txpool,debug");
+test("only Nethermind is used; Geth and Reth are only detected", async () => {
+  const resolved = [];
+  const asked = [];
+  const rpc = async (u, m) => { asked.push(m); return "0x1"; };
+  const found = await otherExecutionClients({ resolve: async (u) => { resolved.push(u); return u.includes("ethchain-geth"); }, rpc });
+  assert.deepEqual(found, [{ id: "geth", title: "Geth" }]);
+  assert.equal(resolved.length, 2);
+  assert.deepEqual(asked, ["eth_chainId"]);
+  // a name left over from a removed Geth (nothing answers) does not count
+  assert.deepEqual(await otherExecutionClients({ resolve: async () => true, rpc: async () => { throw new Error("ECONNREFUSED"); } }), []);
+  const s = stubBox({ el: { installed: false }, others: [{ id: "geth", title: "Geth" }] });
+  await s.box.tick();
+  const st = s.box.status();
+  assert.equal(st.node.state, "needEthereum");
+  assert.equal(st.ethereum.using.id, "nethermind");
+  assert.deepEqual(st.ethereum.others, [{ id: "geth", title: "Geth" }]);
+  // with Nethermind installed, the others are not even looked up
+  let looked = 0;
+  const t = stubBox();
+  t.box.findOtherEl = async () => { looked++; return []; };
+  await t.box.tick();
+  assert.equal(looked, 0);
+});
+
+test("a node that says it is not syncing but has an old newest block is not up to date", async () => {
+  const now = () => 1_800_000_000_000;
+  const rpc = (ts) => async (_u, m) => {
+    if (m === "eth_chainId") return "0x1";
+    if (m === "eth_syncing") return false;
+    if (m === "eth_getBlockByNumber") return { timestamp: "0x" + ts.toString(16) };
+    if (m === "trace_transaction") return null;
+    throw new Error(m);
+  };
+  const c = { id: "nethermind", title: "Nethermind", http: "http://n-" + Math.random() + ":8545" };
+  let st = await probeExecution(c, { rpc: rpc(1_800_000_000 - 30), resolve: async () => true, now });
+  assert.equal(st.synced, true);
+  assert.equal(st.tracing, true);
+  st = await probeExecution({ ...c, http: c.http + "/x" }, { rpc: rpc(1_438_269_973), resolve: async () => true, now });
+  assert.equal(st.synced, false);
+  // a fresh Nethermind (no beacon node yet): syncing object with highestBlock 0
+  st = await probeExecution({ ...c, http: c.http + "/y" }, { rpc: async (_u, m) => (m === "eth_chainId" ? "0x1" : m === "eth_syncing" ? { startingBlock: "0x0", currentBlock: "0x0", highestBlock: "0x0" } : null), resolve: async () => true, now });
+  assert.equal(st.synced, false);
+  assert.equal(st.progress, undefined);
+});
+
+test("settings from a build that offered Geth fall back to Nethermind", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "aztec-"));
+  writeFileSync(join(dir, "settings.json"), JSON.stringify({ el: "geth", cl: "teku" }));
+  const box = new AztecBox({ dataDir: dir, env: {}, log: () => {}, probeEl: async (c) => ({ id: c.id, installed: true }), probeCl: async (c) => ({ id: c.id }), findOtherEl: async () => [] });
+  assert.equal(box.settings.el, "auto");
+  assert.equal(box.settings.cl, "teku");
+  await assert.rejects(box.setL1({ el: "geth", cl: "auto" }), /Unknown/);
 });
 
 test("tracing probe: method missing means no, transaction not found means yes", async () => {
@@ -68,8 +112,10 @@ test("tracing probe: method missing means no, transaction not found means yes", 
   assert.equal(isMethodMissing(notFound), false);
   assert.equal(await probeTracing("x", async () => { throw missing; }), false);
   assert.equal(await probeTracing("x", async () => { throw notFound; }), true);
-  // Nethermind: no debug module, but trace_transaction answers null for an unknown transaction
-  assert.equal(await probeTracing("x", async (_u, m) => { if (m.startsWith("debug_")) throw missing; return null; }), true);
+  // Nethermind (seen with 2.2.2 and the AVADO flags): trace_transaction answers null, debug_ is "disabled"
+  const debugOff = Object.assign(new Error("The method 'debug_traceTransaction' is found but the namespace 'Debug' is disabled for http://0.0.0.0:8545."), { code: -32600 });
+  assert.equal(isMethodMissing(debugOff), true);
+  assert.equal(await probeTracing("x", async (_u, m) => { if (m.startsWith("debug_")) throw debugOff; return null; }), true);
   // a timeout is not a yes
   assert.equal(await probeTracing("x", async () => { throw new Error("timeout"); }), false);
 });
@@ -213,12 +259,6 @@ test("sequencer status is read from the rollup contract", async () => {
   box.proc.child = null;
 });
 
-test("the tracing button only applies to Geth", async () => {
-  const { box } = stubBox();
-  await box.refreshL1();
-  await assert.rejects(box.enableTracing(), /only applies to Geth/);
-});
-
 test("custom addresses must be http(s)", async () => {
   const { box } = stubBox();
   await assert.rejects(box.setL1({ el: "custom", elCustom: "ws://x", cl: "auto", clCustom: "" }), /http/);
@@ -231,7 +271,7 @@ test("keys wait for an Ethereum node that answers and is up to date", async () =
   let s = stubBox({ el: { installed: false } });
   await s.box.refreshL1();
   assert.equal(s.box.status().sequencer.canMakeKeys, false);
-  await assert.rejects(s.box.createKeys({ coinbase: "" }), (e) => e.status === 409 && /once there is an Ethereum node/.test(e.message));
+  await assert.rejects(s.box.createKeys({ coinbase: "" }), (e) => e.status === 409 && /once Nethermind is installed/.test(e.message));
   s = stubBox({ el: { synced: false } });
   await s.box.refreshL1();
   assert.equal(s.box.status().sequencer.canMakeKeys, false);

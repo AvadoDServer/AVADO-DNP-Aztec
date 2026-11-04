@@ -9,14 +9,18 @@ sequencer, with a plain-language page at http://aztec.my.ava.do.
   docs.aztec.network names on 2026-11-04) with `aztec start --network mainnet --node`, and with
   `--sequencer` added once keys exist. The node downloads Aztec's own snapshot on first start (small,
   minutes) and then follows Ethereum.
-- Uses the **Ethereum node and beacon node on the same AVADO** (Geth, Nethermind or Reth; Teku,
-  Nimbus, Lighthouse or Prysm), found automatically over the AVADO network, or addresses the owner
-  enters (advanced). It starts only when both are synced. Blobs the beacon node does not keep come
-  from the free Blobscan API.
-- **Traces**: Aztec needs `debug_traceTransaction` or `trace_transaction` on the Ethereum node.
-  Nethermind offers `trace_*` by default. AVADO's Geth package runs with
-  `--http.api eth,net,web3,txpool`, so the page detects this and offers one button that adds `debug`
-  to Geth's `EXTRA_OPTS` through the DAPPMANAGER (`updatePackageEnv`, restarts Geth, about a minute).
+- Uses **Nethermind and a beacon node on the same AVADO** (`avado-dnp-nethermind.my.ava.do:8545`;
+  Teku, Nimbus, Lighthouse or Prysm), found automatically over the AVADO network, or addresses the
+  owner enters under "More options" (advanced). It starts only when both are synced. Blobs the
+  beacon node does not keep come from the free Blobscan API.
+- **Nethermind only**: Aztec 6 refuses to start unless the Ethereum node serves
+  `trace_transaction` or `debug_traceTransaction`. AVADO's Nethermind package serves
+  `trace_transaction` out of the box (Nethermind's default RPC modules include `Trace`; checked with
+  Nethermind 2.2.2 and the package's flags), so nothing has to be changed there. Geth would need its
+  `debug` API opened to every app on the box and keeps only 128 blocks of trace history, which Aztec's
+  docs call not enough. An owner who runs Geth (or Reth) sees "Aztec needs Nethermind" with a link to
+  Nethermind in the store; Geth and Reth are only asked for their chain id. Switching the
+  staking setup to Nethermind is a separate step the page does not do.
 - **Keys**: one click makes a 24-word recovery phrase on the box (viem, BIP-39, 256 bits) and runs
   `aztec validator-keys new` for mainnet (GSE `0xa92ecFD0E70c9cd5E5cd76c50Af0F7Da93567a4f`,
   `--l1-chain-id 1`, `--bls-key-derivation-v6`, optional reward address as coinbase). The words are
@@ -25,7 +29,7 @@ sequencer, with a plain-language page at http://aztec.my.ava.do.
   the node reads in full) and can be downloaded for stake.aztec.network. Owners who already have
   keys can type their words or upload a plain `key1.json`. The stake and the withdrawal right stay
   with the owner's own wallet on the staking website; the box never sees that wallet.
-- Shows: node state and block, Ethereum and beacon node state (including "traces are off"),
+- Shows: node state and block, Nethermind and beacon node state (catching up with %, not answering),
   sequencer address, its ETH balance for L1 fees, its status read from the rollup contract
   (`getStatus`: not registered / active / below minimum / exiting), recently missed votes from the
   node's own validator stats, the reward address (changeable), free disk space, and the node log with
@@ -41,9 +45,13 @@ other AVADO pages (Host allow-list, same-origin check and custom header on every
 
 ## Requirements
 
-- A synced Ethereum node and beacon node on the same AVADO (the node also needs the Ethereum node to
+- A synced Nethermind and beacon node on the same AVADO (the node also needs the Ethereum node to
   return the rollup contract's historical logs, which a full local node does and free public
-  endpoints do not).
+  endpoints do not). A new Nethermind needs about a day to sync; the page says so, and key making
+  waits for it (the key tool reads one value from Ethereum).
+- Aztec's L1 RPC guide asks for about 3,600 blocks of trace history and suggests
+  `--Pruning.FullPruningTrigger=StateDbSize --Pruning.FullPruningThresholdMb=256000` for Nethermind.
+  The Aztec node only warns when old blocks cannot be traced; it still starts and follows the chain.
 - Aztec's guide asks for 8 cores, 8 GB RAM and a 1 TB SSD (shared with the Ethereum node).
 - Docker 20.10.10 or newer on the host (Ubuntu 24.04 base image).
 

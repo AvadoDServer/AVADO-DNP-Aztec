@@ -47,7 +47,6 @@ const routes = {
     return box.removeKeys();
   }),
   "POST /api/ethereum": wrap((b) => box.setL1({ el: str(b.el), elCustom: str(b.elCustom), cl: str(b.cl), clCustom: str(b.clCustom) })),
-  "POST /api/ethereum/enable-tracing": wrap(() => box.enableTracing()),
   "POST /api/node/restart": wrap(() => box.restartNode()),
 };
 
