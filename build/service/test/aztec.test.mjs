@@ -91,13 +91,15 @@ test("recovery words are cleaned up and checked", () => {
 
 test("makeKeys calls the Aztec tool for mainnet and never leaks the words in its error", async () => {
   let seen;
+  let input;
   const words = "zoo ".repeat(23) + "wrong";
   await assert.rejects(
     makeKeys({
       words,
       l1RpcUrl: "http://eth:8545",
-      runImpl: async (_cmd, args) => {
+      runImpl: async (_cmd, args, _env, stdin) => {
         seen = args;
+        input = stdin;
         throw Object.assign(new Error("exit 1"), { output: `Using mnemonic ${words}\nError: invalid mnemonic` });
       },
     }),
@@ -107,6 +109,10 @@ test("makeKeys calls the Aztec tool for mainnet and never leaks the words in its
   assert.equal(seen[seen.indexOf("--l1-chain-id") + 1], "1");
   assert.equal(seen[seen.indexOf("--gse-address") + 1], "0xa92ecFD0E70c9cd5E5cd76c50Af0F7Da93567a4f");
   assert.ok(seen.includes("--bls-key-derivation-v6"));
+  // the words go on standard input, never on the command line (readable with ps)
+  assert.equal(input, words);
+  assert.ok(!seen.includes("--mnemonic"));
+  assert.ok(!seen.some((a) => a.includes("zoo")));
   await assert.rejects(makeKeys({ words, l1RpcUrl: null }), /Ethereum node/);
 });
 

@@ -73,29 +73,43 @@ export async function addressOf(privateKey) {
   return privateKeyToAccount(privateKey).address;
 }
 
-function run(cmd, args, env) {
+function run(cmd, args, env, input = "") {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { env, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(cmd, args, { env, stdio: ["pipe", "pipe", "pipe"] });
     let out = "";
     const keep = (b) => (out = (out + b.toString()).slice(-20000));
     child.stdout.on("data", keep);
     child.stderr.on("data", keep);
+    child.stdin.on("error", () => {}); // reported through "exit"
+    child.stdin.end(input);
     child.on("error", reject);
     child.on("exit", (code) => (code === 0 ? resolve(out) : reject(Object.assign(new Error(`exit ${code}`), { output: out }))));
   });
 }
 
+// Starts the Aztec tool with the recovery words read from standard input and
+// added to its arguments inside the process. A command line can be read by
+// every program on the box (for example `ps` on the host); standard input cannot.
+export const KEYGEN_WRAPPER = [
+  "const chunks = [];",
+  "for await (const c of process.stdin) chunks.push(c);",
+  "const words = Buffer.concat(chunks).toString('utf8').trim();",
+  "const [cli, ...rest] = process.argv.slice(1);",
+  "process.argv = [process.argv[0], cli, ...rest, '--mnemonic', words];",
+  "await import(cli);",
+].join("\n");
+
 /**
  * Makes the keystore and the staking file with the Aztec tool, from the given
- * words. The words go to the tool as an argument of a short-lived process
- * inside this container only. Returns { keystore, stakerOutput }.
+ * words. The words go to a short-lived process inside this container on its
+ * standard input, never on a command line. Returns { keystore, stakerOutput }.
  */
 export async function makeKeys({ words, l1RpcUrl, coinbase, runImpl = run, cli = AZTEC_CLI, env = process.env }) {
   if (!l1RpcUrl) throw fail("The Ethereum node is needed to make the keys. Wait until it is found and answers.", 409);
   const dir = mkdtempSync(join(tmpdir(), "aztec-keys-"));
   try {
     const args = [
-      "--no-warnings", cli, "validator-keys", "new",
+      "--no-warnings", "--input-type=module", "-e", KEYGEN_WRAPPER, "--", cli, "validator-keys", "new",
       "--fee-recipient", ZERO_FEE_RECIPIENT,
       "--staker-output",
       "--gse-address", GSE_ADDRESS_MAINNET,
@@ -105,11 +119,10 @@ export async function makeKeys({ words, l1RpcUrl, coinbase, runImpl = run, cli =
       "--file", "key1.json",
       // keeps every BLS key under the L1 gas limit for its registration; the same flag regenerates the same keys
       "--bls-key-derivation-v6",
-      "--mnemonic", words,
       ...(coinbase ? ["--coinbase", coinbase] : []),
     ];
     try {
-      await runImpl(process.execPath, args, { ...env, HOME: dir });
+      await runImpl(process.execPath, args, { ...env, HOME: dir }, words);
     } catch (err) {
       const last = String(err.output || "").split("\n").map((l) => l.trim()).filter(Boolean).filter((l) => !l.includes(words.split(" ")[0] + " ")).pop();
       throw fail(`The Aztec tool could not make the keys${last ? `: ${last.slice(0, 300)}` : ""}`, 502);
