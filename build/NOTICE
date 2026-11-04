@@ -1,0 +1,18 @@
+AVADO Aztec Sequencer package
+Copyright (C) 2026 AVADO. Licensed under the GNU General Public License v3.0 (see LICENSE).
+
+This image is built on the Aztec node image (azteclabs/aztec, https://github.com/AztecProtocol/aztec-packages)
+by Aztec Labs, Apache License 2.0, unmodified. The page service only starts the node's own
+command (`aztec start --network mainnet --node [--sequencer]`) and its key tool
+(`aztec validator-keys new`), and uses the viem library that ships in that image.
+
+When the beacon node does not keep every blob, the node fetches them from the free Blobscan API
+(https://api.blobscan.com), as Dappnode's Aztec package does.
+
+Dappnode's Aztec package (https://github.com/dappnode/DAppNodePackage-aztec-generic,
+Apache License 2.0, Copyright DAppNode Association) was used as a reference for the node's
+settings (endpoints, ports, the Blobscan fallback, the keystore folder). No code or files were
+copied from it.
+
+The page styles (theme.css, base.css, style.css) come from the AVADO Admin, AVADO Care,
+AVADO AI Connect and AVADO Starknet Validator pages.
