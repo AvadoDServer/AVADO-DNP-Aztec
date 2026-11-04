@@ -61,6 +61,14 @@
   margin: 0;
 }
 
+/* grid items may shrink below their content (the file chooser is wider than a phone otherwise) */
+.field > * {
+  min-width: 0;
+}
+.field input[type="file"] {
+  width: 100%;
+}
+
 .field > span,
 .field legend {
   font-weight: 600;
