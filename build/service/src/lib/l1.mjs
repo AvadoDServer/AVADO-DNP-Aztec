@@ -61,6 +61,25 @@ export function isMethodMissing(err) {
   return /does not exist|not available|not found: method|method not found|unsupported method|not supported|not enabled|not allowed|not whitelisted|disabled/i.test(String(err.message || ""));
 }
 
+// The tracing check makes the Ethereum node log a warning each time (Geth logs
+// every failed call), so its answer is kept for a few minutes per address.
+const TRACING_RECHECK_MS = 5 * 60 * 1000;
+const tracingSeen = new Map();
+
+/** Forget the kept answers, e.g. right after the owner turned traces on. */
+export function forgetTracing() {
+  tracingSeen.clear();
+}
+
+/** probeTracing, asked again only every few minutes for the same address. */
+export async function probeTracingKept(url, rpc = jsonRpc, now = Date.now()) {
+  const seen = tracingSeen.get(url);
+  if (seen && now - seen.at < TRACING_RECHECK_MS) return seen.value;
+  const value = await probeTracing(url, rpc);
+  tracingSeen.set(url, { value, at: now });
+  return value;
+}
+
 /** Aztec needs debug_traceTransaction or trace_transaction on the L1 node. */
 export async function probeTracing(url, rpc = jsonRpc) {
   for (const [method, params] of [
@@ -93,7 +112,7 @@ export async function probeExecution(client, { rpc = jsonRpc, resolve = resolves
       const high = parseInt(syncing.highestBlock, 16);
       if (high > 0) out.progress = Math.min(1, cur / high);
     }
-    out.tracing = await probeTracing(client.http, rpc);
+    out.tracing = await probeTracingKept(client.http, rpc);
   } catch {
     // installed but not answering (starting, stopped)
   }

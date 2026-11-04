@@ -4,7 +4,7 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { Supervised } from "./lib/proc.mjs";
-import { CONSENSUS_CLIENTS, EXECUTION_CLIENTS, jsonRpc, pick, probeConsensus, probeExecution } from "./lib/l1.mjs";
+import { CONSENSUS_CLIENTS, EXECUTION_CLIENTS, forgetTracing, jsonRpc, pick, probeConsensus, probeExecution } from "./lib/l1.mjs";
 import { diskSpace, readJsonFile, writeJsonFile } from "./lib/files.mjs";
 import { enableGethTracing } from "./lib/dappmanager.mjs";
 import { AZTEC_CLI, ETH_ADDRESS, KeyStore, addressOf, makeKeys, newWords, normaliseWords, parseKeystore, withCoinbase } from "./keys.mjs";
@@ -255,9 +255,27 @@ export class AztecBox {
     this.tick();
   }
 
+  /**
+   * The key tool reads one value from Ethereum, so keys can be made only when the
+   * Ethereum node answers and is up to date (a node of your own: assumed ready).
+   */
+  canMakeKeys() {
+    if (!this.el.url) return false;
+    const e = this.el.state;
+    return !e || (e.answering && e.synced !== false && e.mainnet !== false);
+  }
+
+  needEthereumForKeys() {
+    if (this.canMakeKeys()) return;
+    throw Object.assign(new Error(this.el.url
+      ? "Your Ethereum node is not up to date yet. You can make the keys as soon as it is (see “Ethereum node” at the top of this page)."
+      : "The keys can be made once there is an Ethereum node on this AVADO."), { status: 409 });
+  }
+
   /** New keys from new words. Returns the words once; they are not kept. */
   async createKeys({ coinbase }) {
     if (this.keys.present) throw Object.assign(new Error("Sequencer keys are already set up. Remove them first."), { status: 409 });
+    this.needEthereumForKeys();
     if (coinbase && !ETH_ADDRESS.test(coinbase)) throw Object.assign(new Error("The reward address must be an Ethereum address: 0x followed by 40 characters."), { status: 400 });
     const words = await this.keyTools.newWords();
     const { keystore, stakerOutput } = await this.keyTools.makeKeys({ words, l1RpcUrl: this.el.url, coinbase: coinbase || undefined });
@@ -271,6 +289,7 @@ export class AztecBox {
     if (this.keys.present) throw Object.assign(new Error("Sequencer keys are already set up. Remove them first."), { status: 409 });
     if (coinbase && !ETH_ADDRESS.test(coinbase)) throw Object.assign(new Error("The reward address must be an Ethereum address: 0x followed by 40 characters."), { status: 400 });
     const clean = normaliseWords(words);
+    this.needEthereumForKeys();
     const { keystore, stakerOutput } = await this.keyTools.makeKeys({ words: clean, l1RpcUrl: this.el.url, coinbase: coinbase || undefined });
     this.keys.save(keystore, stakerOutput);
     this.keysChanged();
@@ -314,14 +333,21 @@ export class AztecBox {
   async enableTracing() {
     if (!this.el.client || this.el.client.id !== "geth") throw Object.assign(new Error("This only applies to Geth on this AVADO."), { status: 400 });
     const result = await this.keyTools.enableGethTracing();
+    forgetTracing();
     this.log(result.changed ? `Geth RPC options changed from "${result.before}" to "${result.after}"` : "Geth already offers traces");
     setTimeout(() => this.tick(), 30000);
     return { changed: result.changed };
   }
 
+  /** Restarts the node; when it cannot run yet (no Ethereum or beacon node ready) it stays stopped. */
   async restartNode() {
     this.problem = null;
+    if (!this.launchSpec() || !this.l1Ready()) {
+      await this.proc.stop();
+      return { running: false };
+    }
     await this.proc.restart();
+    return { running: true };
   }
 
   status() {
@@ -352,6 +378,7 @@ export class AztecBox {
       sequencer: {
         state: sequencer,
         keys: this.keys.present,
+        canMakeKeys: this.canMakeKeys(),
         stakerFile: !!this.keys.readStakerOutput(),
         attesters: this.attesters,
         problem: this.problem ? this.problem.problem : null,

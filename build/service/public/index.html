@@ -113,6 +113,7 @@
             <button type="submit" class="button" id="k-create-btn">Make sequencer keys</button>
             <span class="muted" id="k-msg" role="status"></span>
           </div>
+          <p class="small muted" id="k-wait" hidden></p>
         </form>
 
         <details class="more">
@@ -121,7 +122,7 @@
           <form class="form" id="k-restore" autocomplete="off">
             <label class="field"><textarea id="k-words" rows="3" spellcheck="false" autocomplete="off"></textarea></label>
             <div class="actions">
-              <button type="submit" class="button small">Restore keys</button>
+              <button type="submit" class="button small" id="k-restore-btn">Restore keys</button>
               <span class="muted" id="k-restore-msg" role="status"></span>
             </div>
           </form>

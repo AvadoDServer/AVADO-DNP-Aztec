@@ -100,6 +100,25 @@ export const KEYGEN_WRAPPER = [
 ].join("\n");
 
 /**
+ * A plain message for a failed run of the Aztec key tool. The tool reads one
+ * value from Ethereum (the registration digest on the GSE contract), so most
+ * failures are an Ethereum node that is not up to date or does not answer.
+ * Never repeats a line that holds the recovery words.
+ */
+export function keygenError(output, words) {
+  const first = String(words || "").split(" ")[0];
+  const lines = String(output || "").split("\n").map((l) => l.trim()).filter(Boolean).filter((l) => !(first && l.includes(first + " ")));
+  const all = lines.join("\n");
+  if (/eth_call|HTTP request failed|returned no data|getRegistrationDigest|fetch failed|ECONNREFUSED/i.test(all)) {
+    return "The keys could not be made: the Aztec tool needs to read Ethereum through your Ethereum node, and it did not get an answer. Try again when the Ethereum node on this page shows as up to date.";
+  }
+  // the Aztec CLI logs "ERROR: cli <message>"; otherwise take the last line that is not a stack frame or the Node.js version
+  const cli = lines.map((l) => /ERROR: cli (.+)$/.exec(l)).filter((m) => m && !/^Error in command execution/.test(m[1])).pop();
+  const last = cli ? cli[1] : lines.filter((l) => !/^at\s|^Node\.js v|^[{}\[\]),]+$/.test(l)).pop();
+  return `The Aztec tool could not make the keys${last ? `: ${last.slice(0, 300)}` : "."}`;
+}
+
+/**
  * Makes the keystore and the staking file with the Aztec tool, from the given
  * words. The words go to a short-lived process inside this container on its
  * standard input, never on a command line. Returns { keystore, stakerOutput }.
@@ -124,8 +143,7 @@ export async function makeKeys({ words, l1RpcUrl, coinbase, runImpl = run, cli =
     try {
       await runImpl(process.execPath, args, { ...env, HOME: dir }, words);
     } catch (err) {
-      const last = String(err.output || "").split("\n").map((l) => l.trim()).filter(Boolean).filter((l) => !l.includes(words.split(" ")[0] + " ")).pop();
-      throw fail(`The Aztec tool could not make the keys${last ? `: ${last.slice(0, 300)}` : ""}`, 502);
+      throw fail(keygenError(err.output, words), 502);
     }
     const keystore = parseKeystore(readFileSync(join(dir, "key1.json"), "utf8"));
     const stakerPath = join(dir, "key1_staker_output.json");

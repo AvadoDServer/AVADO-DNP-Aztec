@@ -59,8 +59,8 @@ function nodeText(s) {
   const n = s.node;
   switch (n.state) {
     case "needEthereumAndBeacon":
-    case "needEthereum":
-    case "needBeacon": return "Waiting for an Ethereum node";
+    case "needEthereum": return "Waiting for an Ethereum node";
+    case "needBeacon": return "Waiting for a beacon node";
     case "needTracing": return "Waiting for traces on the Ethereum node";
     case "waitingForEthereum": return "Waiting until the Ethereum node is up to date";
     case "starting": return "Starting";
@@ -81,7 +81,9 @@ function verdict(s) {
   const n = s.node.state;
   const q = s.sequencer;
   const a = q.attesters[0];
-  if (n === "needEthereumAndBeacon" || n === "needEthereum" || n === "needBeacon") return ["warning", "Install an Ethereum node first", "Your Aztec node needs the Ethereum node and the beacon node on this AVADO."];
+  if (n === "needEthereumAndBeacon") return ["warning", "Install an Ethereum node first", "Your Aztec node needs the Ethereum node and the beacon node on this AVADO."];
+  if (n === "needEthereum") return ["warning", "Install an Ethereum node first", "Your Aztec node needs an Ethereum node (Nethermind or Geth) on this AVADO."];
+  if (n === "needBeacon") return ["warning", "Install a beacon node first", "Your Aztec node needs a beacon node (Teku, Nimbus, Lighthouse or Prysm) on this AVADO."];
   if (n === "needTracing") return ["warning", "One setting to change", "Aztec needs to read Ethereum transaction details. See below."];
   if (n === "waitingForEthereum") return ["unknown", "Waiting for your Ethereum node", "The Aztec node starts when the Ethereum node and the beacon node are up to date."];
   if (q.problem && PROBLEMS[q.problem]) return ["warning", "Your Aztec node needs attention", PROBLEMS[q.problem]];
@@ -133,6 +135,14 @@ function render(s) {
 
   const q = s.sequencer;
   show("s-setup", !q.keys && !showingWords);
+  // the key tool reads Ethereum through the box's Ethereum node: no button that cannot work yet
+  const canMake = q.canMakeKeys !== false;
+  $("k-create-btn").disabled = !canMake || $("k-msg").textContent === "Working…";
+  $("k-restore-btn").disabled = !canMake;
+  show("k-wait", !canMake);
+  $("k-wait").textContent = !s.ethereum.using || !s.ethereum.state || !s.ethereum.state.installed
+    ? "You can make the keys once there is an Ethereum node on this AVADO."
+    : "You can make the keys once your Ethereum node is up to date.";
   show("s-running", q.keys && !showingWords);
   if (q.keys) {
     const a = q.attesters[0];
@@ -309,8 +319,8 @@ on("eth-form", "submit", (e) => {
 
 on("node-restart", "click", () => {
   submit($("node-restart"), "eth-msg", async () => {
-    await api("/api/node/restart", {});
-    return "Restarted.";
+    const r = await api("/api/node/restart", {});
+    return r.running === false ? "Not started: the Aztec node starts by itself when the Ethereum node and the beacon node are ready." : "Restarted.";
   });
 });
 
@@ -318,7 +328,9 @@ $("log-node").closest("details").addEventListener("toggle", async (e) => {
   if (!e.target.open) return;
   try {
     const { lines } = await api("/api/logs");
-    $("log-node").textContent = lines.join("\n") || "Nothing yet.";
+    $("log-node").textContent = lines.join("\n") || (last && /^need|^waiting/.test(last.node.state)
+      ? "The Aztec node has not started yet. It starts by itself when the Ethereum node and the beacon node are ready."
+      : "Nothing yet.");
   } catch (err) {
     $("log-node").textContent = err.message;
   }

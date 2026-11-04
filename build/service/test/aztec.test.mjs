@@ -5,8 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AztecBox, explainLine, splitOptions } from "../src/aztec.mjs";
 import { gethOptsWithDebug } from "../src/lib/dappmanager.mjs";
-import { isMethodMissing, probeTracing } from "../src/lib/l1.mjs";
-import { makeKeys, normaliseWords, parseKeystore, withCoinbase } from "../src/keys.mjs";
+import { forgetTracing, isMethodMissing, probeTracing, probeTracingKept } from "../src/lib/l1.mjs";
+import { keygenError, makeKeys, normaliseWords, parseKeystore, withCoinbase } from "../src/keys.mjs";
 
 const KEY = "0x" + "11".repeat(32);
 const BLS = "0x" + "22".repeat(32);
@@ -225,4 +225,61 @@ test("custom addresses must be http(s)", async () => {
   await assert.rejects(box.setL1({ el: "nope", cl: "auto" }), /Unknown/);
   await box.setL1({ el: "custom", elCustom: "http://my-eth:8545", cl: "custom", clCustom: "https://beacon.example" });
   assert.equal(box.status().ethereum.using.id, "custom");
+});
+
+test("keys wait for an Ethereum node that answers and is up to date", async () => {
+  let s = stubBox({ el: { installed: false } });
+  await s.box.refreshL1();
+  assert.equal(s.box.status().sequencer.canMakeKeys, false);
+  await assert.rejects(s.box.createKeys({ coinbase: "" }), (e) => e.status === 409 && /once there is an Ethereum node/.test(e.message));
+  s = stubBox({ el: { synced: false } });
+  await s.box.refreshL1();
+  assert.equal(s.box.status().sequencer.canMakeKeys, false);
+  await assert.rejects(s.box.createKeys({ coinbase: "" }), (e) => e.status === 409 && /not up to date/.test(e.message));
+  await assert.rejects(s.box.restoreKeys({ words: Array(24).fill("abandon").join(" ") }), /not up to date/);
+  assert.equal(s.calls.length, 0);
+  s = stubBox();
+  await s.box.refreshL1();
+  assert.equal(s.box.status().sequencer.canMakeKeys, true);
+});
+
+test("a failed key tool run gives a plain message, never the Node.js version or the words", () => {
+  const words = "zoo ".repeat(23) + "wrong";
+  const viem = "[18:56:46.325] ERROR: cli Error in command execution\n[18:56:46.327] ERROR: cli ContractFunctionExecutionError: HTTP request failed.\nRequest body: {\"method\":\"eth_call\"}\n    at readContract (x.js:1)\nNode.js v24.22.1";
+  assert.match(keygenError(viem, words), /needs to read Ethereum through your Ethereum node/);
+  const other = `[1] ERROR: cli Error in command execution\n[2] ERROR: cli Error: invalid fee recipient\n    at y (z.js:2)\n}\nNode.js v24.22.1`;
+  assert.equal(keygenError(other, words), "The Aztec tool could not make the keys: Error: invalid fee recipient");
+  assert.equal(keygenError("Node.js v24.22.1", words), "The Aztec tool could not make the keys.");
+  assert.ok(!keygenError(`Using mnemonic ${words}`, words).includes("zoo"));
+});
+
+test("the tracing answer is kept for a few minutes, and forgotten on request", async () => {
+  forgetTracing();
+  let calls = 0;
+  const missing = Object.assign(new Error("the method debug_traceTransaction does not exist/is not available"), { code: -32601 });
+  const rpc = async () => { calls++; throw missing; };
+  assert.equal(await probeTracingKept("http://geth", rpc, 1000), false);
+  const n = calls;
+  assert.equal(await probeTracingKept("http://geth", rpc, 1000 + 60000), false);
+  assert.equal(calls, n);
+  assert.equal(await probeTracingKept("http://geth", rpc, 1000 + 6 * 60000), false);
+  assert.ok(calls > n);
+  forgetTracing();
+  const m = calls;
+  await probeTracingKept("http://geth", rpc, 1000 + 6 * 60000);
+  assert.ok(calls > m);
+});
+
+test("restart does not start the node while Ethereum is not ready", async () => {
+  let started = 0;
+  let s = stubBox({ el: { synced: false } });
+  s.box.proc.restart = async () => { started++; };
+  await s.box.refreshL1();
+  assert.deepEqual(await s.box.restartNode(), { running: false });
+  assert.equal(started, 0);
+  s = stubBox();
+  s.box.proc.restart = async () => { started++; };
+  await s.box.refreshL1();
+  assert.deepEqual(await s.box.restartNode(), { running: true });
+  assert.equal(started, 1);
 });
