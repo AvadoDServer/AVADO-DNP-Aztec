@@ -43,6 +43,15 @@ router for better connectivity, it also works without). The node finds the publi
 protected by the key the node generates; never shown). The page API has the same guards as the
 other AVADO pages (Host allow-list, same-origin check and custom header on every change).
 
+**HTTPS.** The page also answers on https://aztec.my.ava.do (port 443) with the box's
+`*.my.ava.do` certificate, the one the Admin and the other AVADO apps with https use (the
+box's DAPPMANAGER serves it at http://dappmanager.my.ava.do; iso.ava.do is the second source).
+Chrome tries https first ("Always use secure connections"), so without it Chrome showed "This
+site doesn't support a secure connection". The certificate is used only when it is for
+`*.my.ava.do`, valid for at least another hour and matches its key; until then the page stays
+http only and it is checked every 5 minutes, after that daily. http works as before, also in
+the Admin's Setup tab. `build/service/src/lib/https.mjs` (the same file in AVADO-DNP-Starknet and AVADO-DNP-Aztec).
+
 ## Requirements
 
 - A synced Nethermind and beacon node on the same AVADO (the node also needs the Ethereum node to
