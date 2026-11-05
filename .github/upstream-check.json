@@ -1,0 +1,36 @@
+{
+  "title": "Aztec Sequencer",
+  "components": [
+    {
+      "name": "Aztec node",
+      "github": "AztecProtocol/aztec-packages",
+      "images": [
+        {
+          "var": "aztec",
+          "ref": "azteclabs/aztec:{version}"
+        }
+      ],
+      "caution": "Aztec versions follow mainnet governance. Check that the mainnet sequencer guide on docs.aztec.network names this version before you merge.",
+      "pins": [
+        {
+          "file": "build/Dockerfile",
+          "text": "ARG AZTEC_IMAGE=azteclabs/aztec:{version}@sha256:{aztec}"
+        },
+        {
+          "file": "build/Dockerfile",
+          "text": "(mainnet sequencer guide: azteclabs/aztec:{version})",
+          "optional": true
+        },
+        {
+          "file": "dappnode_package.json",
+          "text": "\"upstream\": \"{version}\""
+        },
+        {
+          "file": "README.md",
+          "text": "(`azteclabs/aztec:{version}`,",
+          "optional": true
+        }
+      ]
+    }
+  ]
+}
