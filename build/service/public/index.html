@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AVADO Aztec Sequencer</title>
+    <link rel="icon" href="/favicon.png" />
+    <link rel="stylesheet" href="/theme.css" />
+    <link rel="stylesheet" href="/base.css" />
+    <link rel="stylesheet" href="/style.css" />
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <main class="shell">
+      <header class="top">
+        <span class="brand">AVADO <strong>Aztec Sequencer</strong></span>
+        <span class="version" id="version"></span>
+      </header>
+
+      <!-- the one thing to know or do now; links open in the Admin (the page may sit in its Setup tab) -->
+      <section class="card verdict" id="verdict" data-level="unknown" aria-live="polite">
+        <span class="dot"></span>
+        <div>
+          <h1 id="headline">Checking your Aztec node…</h1>
+          <p id="subline"></p>
+          <p class="small muted" data-mt="sm" id="verdict-note" hidden></p>
+          <div class="actions" data-mt="md" id="verdict-actions" hidden>
+            <a class="button small" id="act-nethermind" href="http://my.ava.do/#/installer/avado-dnp-nethermind.public.dappnode.eth" target="_top" hidden>Install Nethermind</a>
+            <a class="button small" id="act-beacon" href="http://my.ava.do/#/installer?category=ethstaking" target="_top" hidden>Install a beacon node</a>
+            <a class="button ghost small" id="act-nethermind-page" href="http://my.ava.do/#/packages/avado-dnp-nethermind.public.dappnode.eth" target="_top" hidden>Open Nethermind in the Admin</a>
+          </div>
+        </div>
+      </section>
+
+      <p class="notice" id="page-error" hidden></p>
+
+      <section class="card">
+        <dl class="facts">
+          <div><dt>Aztec node</dt><dd id="f-node">…</dd></div>
+          <div><dt>Ethereum node</dt><dd id="f-eth">…</dd></div>
+          <div><dt>Beacon node</dt><dd id="f-beacon">…</dd></div>
+          <div><dt>Sequencer</dt><dd id="f-seq">…</dd></div>
+          <div><dt>Free disk space</dt><dd id="f-disk">…</dd></div>
+        </dl>
+      </section>
+
+      <!-- sequencer: not set up (shown once Nethermind and a beacon node are installed) -->
+      <section class="card" id="s-setup" hidden>
+        <h2>Become an Aztec sequencer</h2>
+        <p class="lead">A sequencer builds and votes on Aztec blocks and earns AZTEC. You need <strong>200,000 AZTEC</strong>, staked from your own wallet.</p>
+        <ol class="steps" id="k-steps">
+          <li><strong>Make the keys</strong> and write the 24 words on paper.</li>
+          <li><strong>Send 0.01 ETH</strong> to the sequencer address, for Ethereum fees.</li>
+          <li><strong>Stake</strong> on stake.aztec.network with the staking file.</li>
+          <li><strong>Wait</strong> in the queue until this page says “Active”.</li>
+        </ol>
+
+        <form class="form" id="k-create" autocomplete="off" data-mt="md">
+          <p class="small muted" id="k-wait" hidden></p>
+          <div class="actions">
+            <button type="submit" class="button" id="k-create-btn">Make sequencer keys</button>
+            <span class="muted" id="k-msg" role="status"></span>
+          </div>
+          <details class="more">
+            <summary>Reward address (optional)</summary>
+            <label class="field" data-mt="sm">
+              <span>An Ethereum address of yours that receives the sequencer's rewards. Leave empty to use the sequencer's own address.</span>
+              <input type="text" id="k-coinbase" placeholder="0x…" spellcheck="false" />
+            </label>
+          </details>
+        </form>
+
+        <details class="more">
+          <summary>Before you start</summary>
+          <ul class="never" data-mt="sm">
+            <li>Your stake, and the right to take it back, stay with your own wallet on the Aztec staking website. The box never sees it.</li>
+            <li>The box keeps the sequencer's own keys: an Ethereum key that signs and pays the small Ethereum fees, and a second key for voting.</li>
+            <li>If the box is off for long, the sequencer misses its turns and can lose part of the stake as a penalty. Keep the box online.</li>
+          </ul>
+          <p class="small" data-mt="sm">
+            To stake: download the staking file (it appears after step 1), open
+            <a href="https://stake.aztec.network" target="_blank" rel="noopener">stake.aztec.network</a>, connect the wallet that holds your AZTEC,
+            choose “Stake”, then “Run your own Sequencer”, upload the file and confirm in your wallet.
+          </p>
+          <p class="small" data-mt="sm">
+            Less than 200,000 AZTEC? You can delegate it to a staking provider instead; see
+            <a href="https://docs.aztec.network/operate/operators/setup/become_a_staking_provider" target="_blank" rel="noopener">Aztec's staking guide</a>.
+          </p>
+        </details>
+
+        <details class="more">
+          <summary>I already have sequencer keys</summary>
+          <p class="small" data-mt="sm">Type the 24 recovery words this page (or the Aztec tool) showed you, to make the same keys again:</p>
+          <form class="form" id="k-restore" autocomplete="off">
+            <label class="field"><textarea id="k-words" rows="3" spellcheck="false" autocomplete="off"></textarea></label>
+            <div class="actions">
+              <button type="submit" class="button small" id="k-restore-btn">Restore keys</button>
+              <span class="muted" id="k-restore-msg" role="status"></span>
+            </div>
+          </form>
+          <p class="small" data-mt="md">Or choose the keystore file the Aztec tool made (key1.json, not the staker output file):</p>
+          <form class="form" id="k-import">
+            <label class="field"><input type="file" id="k-file" accept=".json,application/json" /></label>
+            <div class="actions">
+              <button type="submit" class="button small">Use this keystore</button>
+              <span class="muted" id="k-import-msg" role="status"></span>
+            </div>
+          </form>
+        </details>
+      </section>
+
+      <!-- the recovery words, shown once -->
+      <section class="card attention" id="words-card" hidden>
+        <h2>Write these 24 words on paper</h2>
+        <p>
+          They are the only way to make the same sequencer keys again, for example on a new box. Anyone with them can run your sequencer, so
+          keep them private. This page shows them only now. Your stake does not depend on them: it stays with the wallet you stake from.
+        </p>
+        <div class="copyrow" data-mt="sm"><code id="words"></code></div>
+        <label class="check" data-mt="md">
+          <input type="checkbox" id="words-done" />
+          <span>I wrote the 24 words down</span>
+        </label>
+        <div class="actions" data-mt="sm">
+          <button type="button" class="button" id="words-close" disabled>Hide the words</button>
+        </div>
+      </section>
+
+      <!-- sequencer: set up -->
+      <section class="card" id="s-running" hidden>
+        <h2>Your sequencer</h2>
+        <p class="notice" id="s-problem" hidden></p>
+        <dl class="facts">
+          <div><dt>Sequencer address</dt><dd><code id="s-addr"></code></dd></div>
+          <div><dt>Status on Ethereum</dt><dd id="s-status">…</dd></div>
+          <div><dt>ETH for fees</dt><dd id="s-eth">…</dd></div>
+          <div><dt>Missed votes (recently)</dt><dd id="s-missed">…</dd></div>
+          <div><dt>Rewards go to</dt><dd><code id="s-coinbase"></code></dd></div>
+        </dl>
+        <p class="small" data-mt="sm" id="s-eth-nudge" hidden>
+          Send about <strong>0.01 ETH</strong> on Ethereum mainnet to the sequencer address above, from any wallet or exchange. It pays the small
+          Ethereum fees when your sequencer posts a block.
+        </p>
+        <div class="actions" data-mt="sm">
+          <button type="button" class="button small" id="s-download">Download the staking file</button>
+          <a class="button ghost small" id="s-dashtec" href="https://dashtec.xyz" target="_blank" rel="noopener">See it on dashtec.xyz</a>
+          <a class="button ghost small" href="https://stake.aztec.network" target="_blank" rel="noopener">Open stake.aztec.network</a>
+        </div>
+        <details class="more">
+          <summary>Change the reward address</summary>
+          <form class="form" id="s-coinbase-form" autocomplete="off">
+            <label class="field"><input type="text" id="s-coinbase-new" placeholder="0x…" spellcheck="false" /></label>
+            <div class="actions">
+              <button type="submit" class="button small">Save</button>
+              <span class="muted" id="s-coinbase-msg" role="status"></span>
+            </div>
+          </form>
+        </details>
+        <details class="more">
+          <summary>Remove the sequencer keys</summary>
+          <p class="small" data-mt="sm">
+            The node stops being a sequencer. If you are staked, you then miss your turns and can be penalised: first take your stake out on
+            stake.aztec.network. You can make the same keys again later from your 24 words. Type <strong>REMOVE</strong> to confirm.
+          </p>
+          <form class="form" id="s-remove-form" autocomplete="off">
+            <label class="field"><input type="text" id="s-remove-confirm" spellcheck="false" /></label>
+            <div class="actions">
+              <button type="submit" class="button danger small">Remove the keys</button>
+              <span class="muted" id="s-remove-msg" role="status"></span>
+            </div>
+          </form>
+        </details>
+      </section>
+
+      <section class="card">
+        <details class="more" id="more-options">
+          <summary>More options</summary>
+          <form class="form" id="eth-form" data-mt="sm">
+            <label class="field">
+              <span>Beacon node</span>
+              <select id="cl-choice">
+                <option value="auto">Automatic (the one on this AVADO)</option>
+                <option value="teku">Teku on this AVADO</option>
+                <option value="nimbus">Nimbus on this AVADO</option>
+                <option value="lighthouse">Lighthouse on this AVADO</option>
+                <option value="prysm">Prysm on this AVADO</option>
+                <option value="custom">Another beacon node (advanced)</option>
+              </select>
+            </label>
+            <label class="field" id="cl-custom-field" hidden>
+              <span>Address of that beacon node</span>
+              <input type="text" id="cl-custom" placeholder="http://…" spellcheck="false" />
+            </label>
+            <label class="check">
+              <input type="checkbox" id="el-use-custom" />
+              <span>Use another Ethereum node instead of Nethermind on this AVADO (advanced)</span>
+            </label>
+            <label class="field" id="el-custom-field" hidden>
+              <span>Address of that Ethereum node. It must offer transaction traces and Ethereum's older records.</span>
+              <input type="text" id="el-custom" placeholder="http://…" spellcheck="false" />
+            </label>
+            <div class="actions">
+              <button type="submit" class="button small">Save</button>
+              <button type="button" class="button ghost small" id="node-restart">Restart the Aztec node</button>
+              <span class="muted" id="eth-msg" role="status"></span>
+            </div>
+          </form>
+          <p class="muted small" data-mt="md">
+            For the best connection to other sequencers, let port 40400 (TCP and UDP) through your router to this AVADO. It also works without,
+            with fewer connections.
+          </p>
+        </details>
+        <details class="more">
+          <summary>Details for support</summary>
+          <p class="small" data-mt="sm">Aztec node log:</p>
+          <pre class="logs" id="log-node"></pre>
+          <p class="muted small" data-mt="md">
+            Runs the <a href="https://github.com/AztecProtocol/aztec-packages" target="_blank" rel="noopener">Aztec node</a> made by Aztec Labs.
+            <span id="aztec-version"></span>
+          </p>
+        </details>
+      </section>
+    </main>
+  </body>
+</html>

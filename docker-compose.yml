@@ -1,0 +1,18 @@
+version: '3.4'
+services:
+  aztec.avado.dnp.dappnode.eth:
+    image: 'aztec.avado.dnp.dappnode.eth:0.1.0'
+    build:
+      context: .
+      dockerfile: build/Dockerfile
+    volumes:
+      - 'aztec:/data'
+    ports:
+      - '40400:40400'
+      - '40400:40400/udp'
+    environment:
+      - EXTRA_OPTS=
+      - LOG_LEVEL=info
+    restart: always
+volumes:
+  aztec: {}
