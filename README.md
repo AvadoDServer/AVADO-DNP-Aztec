@@ -5,7 +5,7 @@ sequencer, with a plain-language page at http://aztec.my.ava.do.
 
 ## What it does
 
-- Runs the official Aztec node (`azteclabs/aztec:6.0.0`, the version the mainnet sequencer guide on
+- Runs the official Aztec node (`azteclabs/aztec:6.1.0`, the version the mainnet sequencer guide on
   docs.aztec.network names on 2026-11-04) with `aztec start --network mainnet --node`, and with
   `--sequencer` added once keys exist. The node downloads Aztec's own snapshot on first start (small,
   minutes) and then follows Ethereum.
