@@ -10,8 +10,8 @@
 # The upstream image is pinned by its multi-arch index digest; the tag is only
 # a label. Update tag and digest together: `docker buildx imagetools inspect
 # azteclabs/aztec:<version>` prints the "Digest:" line. Checked 2026-11-04
-# against docs.aztec.network (mainnet sequencer guide: azteclabs/aztec:6.0.0).
-ARG AZTEC_IMAGE=azteclabs/aztec:6.0.0@sha256:59b10cc8e89bb9226db1f771a5abbe5d5f8d71483c00c7472187e6ddc7adab8d
+# against docs.aztec.network (mainnet sequencer guide: azteclabs/aztec:6.1.0).
+ARG AZTEC_IMAGE=azteclabs/aztec:6.1.0@sha256:d93f31948690e7bdf93496028e29f39a326248a79149df77ad44311778060860
 
 ########## Tests: a failing test fails the image build (uses the image's own Node.js and viem)
 FROM --platform=linux/amd64 ${AZTEC_IMAGE} AS test
